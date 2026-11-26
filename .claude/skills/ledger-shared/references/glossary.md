@@ -65,11 +65,11 @@ One step of a piece of work's journey: discovery, discussion, experiment, invest
 Both the first phase of every piece of work and the name of the first stage. As a phase it settles what the work is, from a conversation where nothing is decided, and never starts solving the problem; it runs at two levels, the product's own conversation, where new work starts and the roadmap is shaped, and an epic's, where its map is drawn. When the two meanings could collide, say "the discovery phase" or "the Discovery stage".
 
 **discussion**:
-The deciding phase, one conversation per topic. Research, deep dives, spikes and experiments are its tools, never phases of their own: every question, finding and decision lands on the ledger as it is made, and the topic's map shows what is still open. Once nothing of the person's is open, the closing pass runs and the topic reaches decided.
+The deciding phase, one conversation per topic. Research, deep dives, spikes and experiments are its tools, never phases of their own: every question, finding and decision lands on the ledger, and the topic's map shows what is still open. Once no question is open and the talk has come to rest, Claude offers the close, which runs on the person's yes. It also runs when the person asks for it, or on the convergence yes, each question still open closed first. The closing pass runs and the topic reaches decided.
 _Avoid_: research (as a phase), the discussion document
 
 **closing pass**:
-The final review of a topic's discussion, run once nothing of the person's is open: a fresh reader goes over the topic's entries and log against the other topics' records and the product record, and the Claude that was in the conversation checks that every decision made in it has an entry. It looks for a question with no answer, a contradiction with another record, and work the decision creates that no topic owns.
+The final review of a topic's discussion, run on the person's yes to the close Claude offers, on their asking for it, or on the convergence yes: a fresh reader goes over the topic's entries and log against the other topics' records and the product record, and the Claude that was in the conversation checks that every decision made in it has an entry. It looks for a question with no answer, a contradiction with another record, a replacement that does not hold up against what it replaced, and work the decision creates that no topic owns.
 
 **decided**:
 The authority gate that closes a topic, after its closing pass: the person signs off on what was decided, with the ledger in view, and gives a verdict on each call they changed. A feature's decided shares one screen with its ready to build.
@@ -170,7 +170,7 @@ The project's history of every question, finding and decision, by either side: w
 One question, finding or decision on the ledger, holding one thing, shown by a short id. A decision names the question it answers, why, what it rules out and what it relies on; it is replaced by a new entry giving one of four reasons — a new fact, another topic's decision, a changed mind, or it was wrong.
 
 **record**:
-A topic's current decisions, each with its why and what it rules out, the answers it replaced folded beneath it. It is drawn from the ledger, never written by hand, and is what later phases and the knowledge base read first. A record the migration wrote from a project's documents from before Ledger says what they decided, the person's decisions among them, never what the code does: where the code does something else, the session records a finding on the decision, and asks the person which stands only when the work in hand turns on it, always before a build would undo what the code does. Code that does not yet do what was decided, in a part the build has not reached, is work still to do; code that no longer does it, in a part built and changed since, is built otherwise.
+A topic's current decisions, each with its why and what it rules out, the answers it replaced folded beneath it. It is drawn from the ledger, never written by hand, and is what later phases and the knowledge base read first. A record the migration wrote from a project's documents from before Ledger says what they decided, the person's decisions among them, never what the code does: where the code does something else, the session records a finding on the decision, and settles which stands only when the work in hand turns on it, as a build that would undo what the code does always does: replacing the decision with what the code does as its own call, where the code plainly stands and that is easy to undo; asking the person, before the code changes, wherever either could stand, the decision looks right and the later code wrong, or the call is hard to undo. Code that does not yet do what was decided, in a part the build has not reached, is work still to do; code that no longer does it, in a part built and changed since, is built otherwise.
 _Avoid_: the discussion document, the record of the person (another thing)
 
 **log**:
@@ -211,10 +211,10 @@ The `t/technical` row, which retells a report from the code's side, and on a que
 _Avoid_: lens
 
 **lean**:
-Claude's own answer to a question it puts to the person, sealed before the person answers so it cannot change, and shown beside the question. An answer that changes Claude's lean is one the person later gives a verdict on.
+Claude's own answer to a question it puts to the person, sealed before the person answers so it cannot change, and shown beside the question. An answer that changes Claude's lean is one the person later gives a verdict on; answered "don't care", the lean lands as Claude's call, settling that one question.
 
 **the ask rule**:
-How Ledger decides whether a call reaches the person, as arithmetic over the person's own answers. Each kind's rate is the pessimistic bound, the high end of a 95% range on how often Claude's answer would have cost the product; a kind asks until its rate falls under the person's threshold, 20% unless they pick another, then goes quiet, and asks again only once its rate rises over a quarter above it, with half each line where a change would be hard to undo. Danger, a kind under a care entry, and replacing an answer the person gave always ask; Claude's calls with one sensible answer go ahead as its own, on a count of their own, until overrules lift their rate over the threshold. A call that goes ahead lands on the ledger as Claude's, and Claude's own confidence never decides.
+How Ledger decides whether a call reaches the person, as arithmetic over the person's own answers. Every call Claude would make for the person goes through it, the obvious ones included, but the few a phase names as Claude's own to land; a question the code, the record or a run can answer is no call, and Claude checks it instead. Each kind's rate is the pessimistic bound, the high end of a 95% range on how often Claude's answer would have cost the product; a kind asks until its rate falls under the person's threshold, 20% unless they pick another, then goes quiet, and asks again only once its rate rises over a quarter above it, with half each line where a change would be hard to undo. Danger, a kind under a care entry, and replacing an answer the person gave always ask; Claude's calls with one sensible answer go ahead as its own, on a count of their own, until overrules lift their rate over the threshold. A call that goes ahead lands on the ledger as Claude's, and Claude's own confidence never decides.
 
 **kind**:
 A question's kind — process, danger, contract, scope, look, words, behaviour or internals — composed from a separate Claude call's answers to twelve narrow yes-or-no questions about what was asked; the ask rule counts answers by it, apart from Claude's one-answer calls and the learned gates, which are counted on their own. An item's kind, in the inbox or on the roadmap, is idea, bug or quick-fix. When the two could collide, say "the question's kind" or "the item's kind".
@@ -233,13 +233,13 @@ Now and then, a call Claude would have made without asking is put to the person 
 After eight agreements in a row in a topic, or on the person's word, Claude offers to settle the rest: how many points are open, how many it would settle, and which still come to the person by the rule, by kind. On yes its points go on the ledger, the person's come one at a time, and the topic moves to its decided screen.
 
 **care entry**:
-A line in the record of the person naming one project and one kind, such as "Aircon: look". While it stands, that kind always asks in that project, however well Claude's calls have matched; answers to it still count. It never covers every project, and is added or dropped from the matrix's care entries.
+A line in the record of the person naming one project and one kind, such as "Aircon: look". While it stands, that kind always asks in that project, however well Claude's calls have matched; answers to it still count. It never covers every project. Claude proposes one where the person wants a kind always asked, and proposes dropping it where their answers to it keep being "don't care"; the matrix's care entries add or drop one too.
 
 **the matrix**:
 The project's screen of how the ask rule stands: for each kind, how often the person changed Claude's lean, how often Claude's answer would have cost the product, its rate, and whether it asks or has gone quiet, with Claude's one-answer calls on a row of their own. A new project starts from the person's answers across their other projects, at most ten answers' worth a kind. The threshold, the threshold mid-build and the care entries are set from it, and a kind or verdict found wrong is corrected in words.
 
 **the record of the person**:
-The person's preferences in words, each with its reason and examples, kept across all their projects; the care entries are part of it. Claude proposes an entry when it sees a pattern or the person states a preference, and an entry steers nothing until the person says yes. The screens call it the record of you.
+The person's preferences in words, each with its reason and examples, kept across all their projects; the care entries are part of it. Claude proposes an entry at a natural pause, when the person states a preference outright or their answers keep showing one, and it steers nothing until the person says yes. The screens call it the record of you.
 _Avoid_: profile, rules
 
 ## The product layer
@@ -248,7 +248,7 @@ _Avoid_: profile, rules
 The layer above the pieces of work: everything decided about the product but not yet started — ideas, bugs and quick-fixes — held as items in horizons, shaped in the product's own conversation. Saying where something belongs mid-conversation ("that's a v2 thing") puts it there in one line; an item leaves the roadmap once its work starts.
 
 **item**:
-One thing in the inbox or on the roadmap, of one kind: an idea, a bug or a quick-fix. On the roadmap an idea is a capability at the grain the person would move around a real roadmap, a bug or a quick-fix one fix; each has a one-line summary and a pointer to where it came from.
+One thing in the inbox or on the roadmap, of one kind: an idea, a bug or a quick-fix. On the roadmap an idea is a capability at the grain the person would move around a real roadmap, never a task, and a bug or a quick-fix one fix; each has a one-line summary and a pointer to where it came from, and stays a placeholder, changeable until work starts from it.
 
 **horizon**:
 A named bucket on the roadmap, in the person's own staging words (launch, v1, someday). Their order is the meaning: first is next up. The horizon is always the person's; Claude never picks one.
@@ -261,7 +261,7 @@ _Avoid_: promote
 What the person has said of the product as a whole, in any conversation — a principle, a direction, who it is for, a constraint, a lean — kept as their input beside the directions they dropped, each with why. Every topic's opening reads them beside the product record, which speaks where both do, and a view is decided in the first topic it bears on.
 
 **product picture**:
-The product's conversation's one view of where the product stands, rewritten in place as the talk moves on: the log is the journey, the picture where things stand now. Each point in it is the person's view, a point from before, an open question with the leans on it, or a pointer to the product record once a discussion has decided it; a section of its own lists the shared files not read in full. It decides nothing and holds the product's level, what no started work holds yet, thinning as work starts; a return to the product's conversation opens from it.
+The product's conversation's one view of where the product stands: the log is the journey, the picture where things stand now. It decides nothing, and thins as work starts; a return to the product's conversation can open from it.
 _Avoid_: the current model, the product summary
 
 **backlog**:
@@ -285,10 +285,10 @@ A file shared with or made for a piece of work — notes, a design document, a s
 _Avoid_: import, attachment
 
 **reference file**:
-A shared file kept to be searched rather than read: one the person shares for reference, or one Claude judges is, such as a transcript, a raw export or a long chat log. It is listed with what it holds where a later sitting finds it — in the product's conversation, the product picture, and in an epic and a topic's brief the ones that bear on them — searched when a point needs it, and read properly whenever the person asks.
+A shared file kept to be searched rather than read: one the person shares for reference, or one Claude judges is, such as a transcript, a raw export or a long chat log. It is read properly whenever the person asks.
 
 **legacy files**:
-The files a piece of work had from before Ledger that the migration found no place for — old plans, agent reports, research — set aside with the work, or with the product, until each is sorted. The start menu shows them on one row, *Sort the legacy files from the migration*, and an epic's menu shows its own. Each file or folder is kept among the work's assets, everything that names it following it, or discarded; a file brought in becomes findings on the record, citing it where it was kept.
+The files a piece of work had from before Ledger that the migration found no place for — old plans, agent reports, research — kept with the work, or with the product, for Claude to look in when the work needs them.
 
 **mail**:
 The messages waiting for a discussion or investigation: from another topic of the same epic, from a later phase that met a question only that conversation can settle, or from a conversation outside the work that found something bearing on it. Its next session raises each one, and it cannot close while one waits; the menus show it as *mail waiting*.

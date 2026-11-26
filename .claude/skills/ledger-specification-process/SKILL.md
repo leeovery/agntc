@@ -18,6 +18,8 @@ The work unit's one spec, `spec.md`: the document its build reads and the person
 
 Load **[framework.md](../ledger-shared/references/framework.md)** and follow its instructions as written.
 
+Load **[raising-a-call.md](../ledger-shared/references/raising-a-call.md)** and follow its instructions as written.
+
 ## Done When
 
 The person has picked the build's position at ready to build: the engine then holds the spec concluded, its phase cut on the unit's manifest, and the build begun in that position — a feature's topic decided with it, with the product-record lines and the candidates the pick covered, and a bugfix's investigation concluded.

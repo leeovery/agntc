@@ -741,11 +741,28 @@ function reviewWork(cwd, unit, manifest, inFlight, sessionId) {
 }
 
 /**
- * What the conversation `sessionId`, at `position`, re-reads.
+ * What the conversation `sessionId`, at `position`, re-reads; in a phase
+ * whose entry names the reference on decisions from before Ledger, that
+ * line beside it, where the work holds one (decisions-from-before.cjs).
  * @param {string} cwd @param {Position} position @param {Manifest} manifest @param {string} sessionId
  * @returns {Work}
  */
 function workAt(cwd, position, manifest, sessionId) {
+  const work = placeWork(cwd, position, manifest, sessionId);
+  if (work.whole === undefined || position.phase === undefined) return work;
+  // Required here, as the ledger's read it makes reaches this module.
+  const { fromBeforeLines } = require('./decisions-from-before.cjs');
+  const noted = fromBeforeLines(cwd, position.phase, position.name, []).map(([key, value]) => `${key}: ${value}`);
+  return noted.length === 0 ? work : { ...work, whole: { ...work.whole, lines: [...(work.whole.lines ?? []), ...noted] } };
+}
+
+/**
+ * What the conversation `sessionId`, at `position`, re-reads of the place
+ * itself.
+ * @param {string} cwd @param {Position} position @param {Manifest} manifest @param {string} sessionId
+ * @returns {Work}
+ */
+function placeWork(cwd, position, manifest, sessionId) {
   const { name, phase } = position;
   const skill = skillAt(name, phase, typeof manifest?.work_type === 'string' ? manifest.work_type : undefined);
   if (skill === null) return { skill: null, documents: [] };
@@ -887,7 +904,7 @@ function fileLine(file) {
 }
 
 /**
- * The note: the skill and its framework re-read, then the place's engine
+ * The note: the skill and what its Instructions section loads re-read, then the place's engine
  * calls and its documents; what else the phase holds open, a line each; its
  * log, where it keeps one, caught up (`logLines`); and the conversation
  * carried on.
@@ -897,7 +914,7 @@ function fileLine(file) {
 function wholeNote(where, skill, calls, files, log, sessionId, lines = [], picture = undefined) {
   return [
     `${COMPACTED} This conversation is working in ${where}. Before anything else, re-read these in full, running each engine call:`,
-    `- ${skill} and its framework`,
+    `- ${skill} and what its Instructions section loads`,
     ...calls.map((c) => `- \`${c}\``),
     ...files.map(fileLine),
     ...lines,

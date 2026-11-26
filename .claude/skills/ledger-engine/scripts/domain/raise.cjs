@@ -33,11 +33,16 @@
 //   screen adds a row of its own, `keep`, keeping the decision as it
 //   stands, its answer as the draw found it, which the seal holds.
 //   `--always built-otherwise` (21.6.16) is a replacement's alone, of a
-//   decision the migration brought across, its session the migration's:
-//   the keep row says keeping it has the build change the code to match,
-//   and the lean may be keep, Claude's own read that the decision should
-//   stand — so the person's keep agrees with it, and their pick of a
-//   proposal stands over it.
+//   decision from before Ledger, its session the migration's: the lean may
+//   be keep, Claude's own read that the decision should stand — so the
+//   person's keep agrees with it, and their pick of a proposal stands over
+//   it. Without the mark, such a decision, no keep of the person's on it
+//   since, is replaced as any call is, whoever its line says made it: the
+//   ask rule decides whether it reaches the person. The keep row says
+//   keeping the decision has the build change the code to match under the
+//   mark, and wherever the decision stands from before Ledger and the
+//   raise's cause is a finding relying on it — a park's draw reading both
+//   from the ledger as it stands then — else that nothing changes.
 // - It refuses, drawing nothing: no session; no state; a place or a link
 //   `ledger decide` refuses — `ledger replace`, on a replacement — read and
 //   checked by that code before any lock (ledger-write.cjs), since the answer
@@ -119,8 +124,10 @@
 // - The decision point decides from the call and, beside it (E1): its label;
 //   where it is made, and whether it blocks build work — made in the build
 //   for a task, which a question asked parks; whose the entry a replacement
-//   would replace is — who decided it, read from the entry, or the person
-//   where a keep of theirs stands on it since (16.5.7); the mark Claude gives
+//   would replace is — given `carried` where it stands from before Ledger,
+//   whoever its line says made it; else who decided it, read from the
+//   entry, or the person where a keep of theirs stands on it since (16.5.7,
+//   `whoseReplaced`); the mark Claude gives
 //   a question that always asks, `--always design-problem`, `--always
 //   live-server` or `--always built-otherwise` (19.4.22, 19.4.20, 21.6.16),
 //   which a fact, always asked, never takes; whether the question it
@@ -249,14 +256,17 @@
 //   recorded (20.6.10).
 // - `raise show <id> [--technical]` draws a raise again from its seal
 //   alone, never from Claude's words; `--technical` shows the mechanism.
-// - `raise answer <id> (--pick <key> | --own | --dont-care |
+// - `raise answer <id> (--pick <n> | --own | --dont-care |
 //   --didnt-follow)`: the person's answer, in the conversation that drew
 //   the raise, found by its seal — the id or a prefix of it; a raise it
 //   never drew, after a `/clear` or a resume under a new session, is
-//   raised again. A row picked, or the person's own
-//   words, lands as the person's decision at the id the draw minted, where
-//   the raise was drawn, answering its question and relying on what it relies
-//   on — on a replacement, as their replacement of the decision for the
+//   raised again. A pick names the row by the number the screen draws it
+//   under (projections/raise.cjs), or by its own key, which a call may make
+//   a number only where it is the row's place (`checkEachRow`); the row's
+//   own key is what every record of the answer holds. A row picked, or the
+//   person's own words, lands as the person's decision at the id the draw
+//   minted, where the raise was drawn, answering its question and relying
+//   on what it relies on — on a replacement, as their replacement of the decision for the
 //   reason and cause sealed, dropping its answer as it stood: a pick's text
 //   is the row's, and what it rules out the other rows' of Claude's; their
 //   own words bring their text, and what they rule out where Claude gives it,
@@ -264,8 +274,8 @@
 //   person's reason, the why, comes on stdin with either. The sealed answer
 //   is the lean row's text; whether it is product-wide is the call's; its
 //   kind and whether it is hard to undo are the sealed label's.
-// - `keep`, picked on a replacement, takes the why on stdin as a pick does:
-//   the person's keep of the decision as it stands lands at the id the draw
+// - The keep row, picked on a replacement, takes the why on stdin as a pick
+//   does: the person's keep of the decision as it stands lands at the id the draw
 //   minted, where the raise was drawn — the decision, the reason and the
 //   cause sealed, the why, and the lean row's text, Claude's proposal, sealed
 //   in it (ledger-events.cjs) — standing over the proposal as the departure
@@ -365,7 +375,7 @@ const { conversationDir } = require('./conversation.cjs');
 const { newId, shortId } = require('./ledger-ids.cjs');
 const { carrying } = require('./ledger.cjs');
 const { ROW_FIELDS, CALL_FIELDS: CALL_SHAPE, ASKED_BLIND, CARRIED_SESSION, entryKind } = require('./ledger-events.cjs');
-const { ID_FACTS, readFolded, foldLedger, questionStands, laterOf, answersOf, notCurrent, factsOf, replacementsOf, whoseDecision } = require('./ledger-fold.cjs');
+const { ID_FACTS, readFolded, foldLedger, questionStands, laterOf, answersOf, notCurrent, factsOf, replacementsOf, keptOf, whoseDecision } = require('./ledger-fold.cjs');
 const { liveness, manifestOf, measuredBy } = require('./ledger-units.cjs');
 const { topicTitle, quickFixBuild, investigationUnderWay, fixesUnderWay } = require('./derivations.cjs');
 const { verbUsage, writePlaced, landRaised, callLogged, staleness } = require('./ledger-write.cjs');
@@ -383,7 +393,7 @@ const { record, modelOf, projectId } = require('./trust-log.cjs');
 const { careEntries, dropCue } = require('./person.cjs');
 const { projectName } = require('./state-checks.cjs');
 const { RAISE_SHOWN, raiseMenu, clearGateShown, isPressed } = require('./gate.cjs');
-const { drawnRows, keepingRow, raiseScreen, revealScreen, leftScreen } = require('./projections/raise.cjs');
+const { drawnRows, drawnNumber, rowDrawn, keepingRow, raiseScreen, revealScreen, leftScreen } = require('./projections/raise.cjs');
 const { evidenceOf } = require('./trust-evidence.cjs');
 const { alikeOn } = require('./trust-counts.cjs');
 const decisionPoint = require('./decision-point.cjs');
@@ -525,7 +535,7 @@ const REPLACE_USAGE = `${verbUsage('replace', SAID, NO_TASK)} ${PARKS_USAGE} ${A
 const FACT = '--fact';
 const FACT_USAGE = `${verbUsage('decide', SAID, NO_TASK)} ${FACT}   (the fact's question as JSON on stdin)`;
 const SHOW_USAGE = 'raise show <id> [--technical]';
-const ANSWER_USAGE = 'raise answer <id> (--pick <key> | --own | --dont-care | --didnt-follow)   (a pick\'s or own words\' answer as JSON on stdin)';
+const ANSWER_USAGE = 'raise answer <id> (--pick <n> | --own | --dont-care | --didnt-follow)   (a pick\'s or own words\' answer as JSON on stdin)';
 const DRAW_USAGE = 'raise draw <work-unit> <question>   (by its number, Q{n}, or its park\'s id)';
 const RAISE_USAGE = [QUESTION_USAGE, REPLACE_USAGE, FACT_USAGE, SHOW_USAGE, ANSWER_USAGE, DRAW_USAGE, questions.ASIDE_USAGE, questions.WAITING_USAGE].join('\n');
 // The sub-verbs, each a word where a draw names a place, `<unit>.<phase>`.
@@ -547,6 +557,8 @@ const RAISE_CHECKED = 'raise-checked.json';
 const CHECKED_LOCK = { timeoutMs: LOCK_TIMEOUT_MS, name: 'the lock on what the conversation sent to check' };
 // The word the screen's "I don't follow" row is sent as (projections/raise.cjs).
 const EXPLAIN = 'explain';
+// A pick naming a row by the number the screen draws it under.
+const NUMBER = /^\d+$/;
 
 const ROWS = type('a list of rows', Array.isArray);
 // Who moved whom as stdin gives it: whatever it holds, the engine rules on it (`movedBy`).
@@ -598,8 +610,12 @@ function checkFields(value, fields, where, optional = {}) {
 }
 
 /**
- * Refuse a row of another shape, and a key two rows share or the screen
- * keeps.
+ * Refuse a row of another shape, and a key two rows share, the screen
+ * keeps, or that is a number other than the row's place from 1: a pick
+ * reads a number as the row drawn under it, and Claude's rows are drawn
+ * first in the call's order, so a key that is its place names one row
+ * either way. A blind question draws its rows in another order, and holds
+ * all the same, its seal keying each row by its place (`inBlindOrder`).
  * @param {Row[]} rows
  */
 function checkEachRow(rows) {
@@ -607,6 +623,7 @@ function checkEachRow(rows) {
     if (!isObject(row)) throw new Error(`raise: the call's rows[${i}] is not a row — {${Object.keys(ROW_FIELDS).join(', ')}}`);
     checkFields(row, ROW_FIELDS, `raise: the call's rows[${i}]`);
     if (SCREEN_KEYS.includes(row.key.toLowerCase())) throw new Error(`raise: the call's rows[${i}] takes the key ${row.key}, which the screen keeps for itself — ${SCREEN_KEYS.join(', ')} are its own, in any case`);
+    if (NUMBER.test(row.key) && row.key !== String(i + 1)) throw new Error(`raise: the call's rows[${i}] takes the key ${row.key}, a number other than its place — a row keyed by a number is keyed by its place among the rows, ${i + 1}, as the screen numbers it, since a pick of a number is the row drawn under it`);
     if (rows.findIndex((other) => other.key === row.key) !== i) throw new Error(`raise: the call's rows share the key ${row.key} — each row's key is its own`);
   });
 }
@@ -744,11 +761,12 @@ function checkProposals({ rows }, { keep }, short) {
 
 /**
  * The row keeping a decision as it stands, its answer `text`: where the
- * code was built otherwise than the decision, keeping it changes the code.
- * @param {string} text @param {Always|null} always @returns {Row}
+ * code was built otherwise than the decision (`builtOtherwise`), keeping it
+ * has the build change the code.
+ * @param {string} text @param {boolean} changesCode @returns {Row}
  */
-function keepRow(text, always) {
-  if (always === BUILT_OTHERWISE) return { key: KEEP, name: 'Keep it as decided', text, notice: 'the build changes the code to match' };
+function keepRow(text, changesCode) {
+  if (changesCode) return { key: KEEP, name: 'Keep it as decided', text, notice: 'the build changes the code to match' };
   return { key: KEEP, name: 'Keep it as it stands', text, notice: 'nothing changes' };
 }
 
@@ -1238,9 +1256,10 @@ function decided(cwd, raising, call, label) {
  * replace`'s where it names `--replaces`, else `ledger decide`'s — in the
  * raise's words: a question it answers still open; a decision it replaces
  * a decision, its answer as it stands kept for the screen's own row, worded
- * for the mark the raise `always` asks by, and whose it is — who decided it,
+ * for code built otherwise than it (`builtOtherwise`), and whose it is —
+ * given `carried` where it stands from before Ledger, else who decided it,
  * or as the person's keep of it since was given, theirs or their "don't
- * care" (`whoseDecision`). Its usage is a fact's where `fact`.
+ * care" (`whoseReplaced`). Its usage is a fact's where `fact`.
  * @param {string} cwd @param {string[]} args @param {string[]} warnings @param {boolean} fact @param {Always|null} always
  * @returns {{place: Place, target: Target, replacedBy: DecidedBy|null, short: (id: string) => string, read: import('./ledger-fold.cjs').Folded}}
  */
@@ -1261,8 +1280,50 @@ function placedRaise(cwd, args, warnings, fact, always) {
   const kind = entryKind(replacing);
   if (kind !== 'decision') throw new Error(`raise --replaces names ${short(entry)}, a ${kind} — a raise replaces a decision, the person picking its answer`);
   if (always === BUILT_OTHERWISE && replacing.session !== CARRIED_SESSION) throw new Error(`raise: ${ALWAYS} ${BUILT_OTHERWISE} marks code built otherwise than a decision the migration brought across, and ${short(entry)} was decided in Ledger, its session not the migration's`);
-  const replaces = { entry, reason: /** @type {string} */ (linked.reason), cause: /** @type {string|null} */ (linked.cause), keep: keepRow(/** @type {string} */ (replacing.text), always) };
-  return { place, target: { answers: null, relies_on: reliesOn, replaces }, replacedBy: whoseDecision(read, entry), short, read };
+  const cause = /** @type {string|null} */ (linked.cause);
+  const keep = keepRow(/** @type {string} */ (replacing.text), builtOtherwise(read, { entry, cause, replacing, always }));
+  const replaces = { entry, reason: /** @type {string} */ (linked.reason), cause, keep };
+  return { place, target: { answers: null, relies_on: reliesOn, replaces }, replacedBy: whoseReplaced(read, entry, replacing), short, read };
+}
+
+/**
+ * Whether the decision `entry`, its line `replacing`, stands from before
+ * Ledger as a raise to replace it reads it (21.6.16): its line the
+ * migration's, whoever that line says made it, and no keep of the person's
+ * on it since.
+ * @param {Folded} read @param {string} entry @param {Record<string, unknown>} replacing
+ */
+function standsFromBefore(read, entry, replacing) {
+  return replacing.session === CARRIED_SESSION && keptOf(read, entry).length === 0;
+}
+
+/**
+ * Whose the decision `entry`, its line `replacing`, is as a raise to replace
+ * it reads it (16.5.7, 21.6.16): given `carried` where it stands from before
+ * Ledger (`standsFromBefore`), whoever its line says made it, so the ask
+ * rule decides its replacement as any call's, and only the built-otherwise
+ * mark always asks it; else as it stands decided (`whoseDecision`), the
+ * person's own, made or kept in Ledger, always asking.
+ * @param {Folded} read @param {string} entry @param {Record<string, unknown>} replacing
+ * @returns {DecidedBy}
+ */
+function whoseReplaced(read, entry, replacing) {
+  return standsFromBefore(read, entry, replacing) ? 'carried' : whoseDecision(read, entry);
+}
+
+/**
+ * Whether a raise replacing the decision `entry`, its line `replacing`, is
+ * about code built otherwise than it, so keeping it has the build change
+ * the code: under the built-otherwise mark; or where the decision stands
+ * from before Ledger (`standsFromBefore`) and the raise's cause is a
+ * finding relying on it.
+ * @param {Folded} read @param {{entry: string, cause: string|null, replacing: Record<string, unknown>, always: Always|null}} raising
+ */
+function builtOtherwise(read, { entry, cause, replacing, always }) {
+  if (always === BUILT_OTHERWISE) return true;
+  if (cause === null || !standsFromBefore(read, entry, replacing)) return false;
+  const found = factsOf(read, cause);
+  return found.kind === 'finding' && found.relies_on.includes(entry);
 }
 
 /**
@@ -1513,7 +1574,7 @@ function wentAhead(cwd, raising, sealed, warnings) {
   const entry = newId();
   const landed = proceeded(cwd, raising, sealed.call, sealed.label, warnings, entry);
   /** @type {Target} */
-  const asked = { answers: null, relies_on: target.relies_on, replaces: { entry, reason: ASKED_BLIND, cause: null, keep: keepRow(leanRow(sealed.call).text, null) } };
+  const asked = { answers: null, relies_on: target.relies_on, replaces: { entry, reason: ASKED_BLIND, cause: null, keep: keepRow(leanRow(sealed.call).text, false) } };
   const logs = () => drawEvent(entry, sealed.label, sealed.model);
   const parked = parkLanded(cwd, parking(place, asked, sealed, { task: null, wentAhead: task, logs }), askedAs({ blind: true, reason: sealed.why_asking }), warnings);
   return { ...parked, landed };
@@ -1581,13 +1642,14 @@ function drawParked(cwd, args) {
   const session = sessionOf(DRAW_SAID);
   /** @type {string[]} */
   const warnings = [];
-  const { question, line, asks, answers, keeps } = questions.foundPark(cwd, args[0], args[1], DRAW_SAID, DRAW_USAGE, warnings);
+  const { question, line, asks, answers, replacing, read } = questions.foundPark(cwd, args[0], args[1], DRAW_SAID, DRAW_USAGE, warnings);
   const place = { unit: line.unit, phase: line.phase, topic: null };
+  const { replaces: entry, reason, cause, always } = line;
   /** @type {Target} */
   const target = {
     answers,
     relies_on: line.relies_on,
-    replaces: line.replaces === null ? null : { entry: line.replaces, reason: line.reason, cause: line.cause, keep: keepRow(/** @type {string} */ (keeps), line.always) },
+    replaces: replacing === null ? null : { entry, reason, cause, keep: keepRow(replacing.text, builtOtherwise(read, { entry, cause, replacing, always })) },
   };
   const id = newId();
   const { lean, why, sort, ...fact } = line.call;
@@ -1654,8 +1716,9 @@ function answerArgs(args) {
 }
 
 /**
- * How the person's answer `sent` came: pressed, where the mod's last press
- * sent it from this raise's menu after the raise was drawn; else typed.
+ * How the person's answer `sent` came — a row's, as its number — pressed,
+ * where the mod's last press sent it from this raise's menu after the
+ * raise was drawn; else typed.
  * @param {string} session @param {Seal} seal @param {string} sent
  * @returns {Via}
  */
@@ -1693,13 +1756,32 @@ function answerOn(form, stdin) {
 }
 
 /**
+ * The row's own key a pick names: the row drawn under it, for a number;
+ * any other, as given. Refuses a number no row is drawn under.
+ * @param {Seal} seal @param {string} pick
+ * @returns {string}
+ */
+function keyPicked(seal, pick) {
+  if (!NUMBER.test(pick)) return pick;
+  const row = rowDrawn(seal, pick);
+  if (row === undefined) throw new Error(`${ANSWER_SAID}: the raise draws no row ${pick} — ${rowsSaid(seal)}`);
+  return row.key;
+}
+
+/** The rows a refused pick is told of, as the screen numbers them. @param {Seal} seal */
+function rowsSaid(seal) {
+  const drawn = drawnRows(seal).length;
+  return drawn === 0 ? 'it draws none' : `its rows are numbered 1 to ${drawn}`;
+}
+
+/**
  * The row `key` among the raise's own. Refuses a key that is no row.
  * @param {Seal} seal @param {string} key
  * @returns {Row}
  */
 function rowOf(seal, key) {
   const row = seal.call.rows.find((r) => r.key === key);
-  if (row === undefined) throw new Error(`${ANSWER_SAID}: the raise has no row ${key} — its rows: ${drawnRows(seal).map((r) => r.key).join(', ') || 'none'}`);
+  if (row === undefined) throw new Error(`${ANSWER_SAID}: the raise has no row ${key} — ${rowsSaid(seal)}`);
   return row;
 }
 
@@ -1716,7 +1798,7 @@ function picked(session, seal, key, stdin) {
   const { why, who_moved_whom: moved } = answerOn(seal.blind ? 'blind' : 'pick', stdin);
   return {
     text: row.text, why, rules_out: othersOf(call, row), who_moved_whom: movedBy(call.lean, key, moved),
-    answer: key, with_text: false, via: cameBy(session, seal, key), reading: null,
+    answer: key, with_text: false, via: cameBy(session, seal, drawnNumber(seal, key)), reading: null,
   };
 }
 
@@ -1763,9 +1845,11 @@ function stillToLand(cwd, seal) {
 
 /**
  * The person's own words on Claude's call — free text, typed — read by the
- * separate call against Claude's rows before anything lands, where
- * `toLand` says it will: read as the lean's row, an agreement, moving no
- * one; read as another, or as none, standing over the lean.
+ * separate call against Claude's rows, the keep row never offered, before
+ * anything lands, where `toLand` says it will: read as the lean's row, an
+ * agreement, moving no one; read as another, or as none, standing over the
+ * lean. Claude's rows are drawn first, in the seal's order, so each is
+ * offered under the number the screen drew it under.
  * @param {CallSeal} seal @param {string} stdin @param {() => boolean} toLand
  * @returns {Given}
  */
@@ -1955,7 +2039,7 @@ function kept(seal, { entry, reason, cause }, moved, why, logged, yours) {
 function keeping(session, seal, replacing, row, stdin) {
   const { why } = answerOn(seal.blind ? 'blind' : 'keep', stdin);
   const moved = seal.call.lean === KEEP ? 'none' : keptMove(replacing.reason);
-  return kept(seal, replacing, moved, why, { answer: row.key, via: cameBy(session, seal, row.key), with_text: false, reading: null, dont_care: false }, { text: row.text, own: false });
+  return kept(seal, replacing, moved, why, { answer: row.key, via: cameBy(session, seal, drawnNumber(seal, row.key)), with_text: false, reading: null, dont_care: false }, { text: row.text, own: false });
 }
 
 /** Who moved whom on the person's keep, as the departure rule holds it for the replacement's reason `reason`. @param {string} reason */
@@ -2191,9 +2275,10 @@ function shownOnAnswer(cwd, seal, form, given, recorded) {
 }
 
 /**
- * `raise answer <id> (--pick <key> | --own | --dont-care |
+ * `raise answer <id> (--pick <n> | --own | --dont-care |
  * --didnt-follow)`: the person's answer to a raise this conversation drew
- * — a row, `keep` on a replacement, their own words, their "don't care",
+ * — a row, by its number or its own key (`keyPicked`), the keep row on a
+ * replacement among them, their own words, their "don't care",
  * or that they didn't follow — and what a blind raise's answer shows
  * (`shownOnAnswer`). A "don't care" reads the care entries before anything
  * lands, so care entries that do not read refuse it with nothing
@@ -2203,12 +2288,12 @@ function shownOnAnswer(cwd, seal, form, given, recorded) {
  * @returns {{answered: Record<string, unknown>, reveal: string|null}}
  */
 function answerRaise(cwd, args, stdin) {
-  const { prefix, form, key } = answerArgs(args);
+  const { prefix, form, key: pick } = answerArgs(args);
   const session = sessionOf(ANSWER_SAID);
   const seal = sealNamed(readSeals(session), prefix, ANSWER_SAID);
   if (form === 'didnt-follow') return { answered: didntFollow(cwd, session, seal), reveal: null };
   const care = form === 'dont-care' ? careEntries() : null;
-  const given = answering(cwd, session, seal, form, key, stdin);
+  const given = answering(cwd, session, seal, form, pick === null ? null : keyPicked(seal, pick), stdin);
   const recorded = recordAnswer(cwd, session, seal, given);
   const answered = { ...recorded, ...(care === null ? {} : dropCued(cwd, seal, recorded, care)), ...convergenceCued(cwd, seal, recorded) };
   return { answered, reveal: shownOnAnswer(cwd, seal, form, given, recorded) };

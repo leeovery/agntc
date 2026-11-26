@@ -1,7 +1,7 @@
 {
   "leeovery/ledger": {
-    "ref": "v0.9.0",
-    "commit": "b60fa5837dcf55d6b990fb0a1ac378a725f488d7",
+    "ref": "v0.9.3",
+    "commit": "dcc51cab8c1b4f8951acaa57f693ece34cd73723",
     "files": [
       ".claude/skills/ledger/",
       ".claude/skills/ledger-continue-epic/",
@@ -43,7 +43,7 @@
     ],
     "type": "pack",
     "cloneUrl": "https://github.com/leeovery/ledger.git",
-    "installedAt": "2026-11-23T15:05:38.752Z",
+    "installedAt": "2026-11-26T13:58:07.609Z",
     "constraint": "^0.9.0"
   }
 }

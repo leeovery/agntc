@@ -15,18 +15,28 @@
 // at a feature's topic closed into its spec voiding that close, the
 // discussion going on (9.7.9), in the same commit; records where the
 // conversation is working — its position, the session label and the place's
-// presence, as `session label` does — and when it entered the place
-// (place-entry.cjs); and answers what the phase needs to begin or resume,
-// in sections: any question first, then a DATA naming what to read, as
+// presence, as `session label` does — when it entered the place
+// (place-entry.cjs), and the conversation entering it (catch-up.cjs); and
+// answers what
+// the phase needs to begin or resume, in sections: any question first, then
+// a DATA naming what to read, as
 // paths and engine calls, never their contents, read as the place stood
 // before the entry wrote anything, and the log the conversation keeps, where it keeps one,
 // with the line it opens its next write with (8.14.8) — or, for a row that
 // writes that line itself, the line written; what a read of the ledger said
 // on the way rides the response as warnings. The reading comes after the
-// question (2.10.3). Between the row's reads and the log, the DATA names the
-// record of the person wherever its file stands (16.18.4, person.cjs) —
-// none while the person has kept nothing — never reading it, so no record
-// refuses an entry.
+// question (2.10.3). After the row's reads, the DATA names each
+// conversation before this one to catch up on (catch-up.cjs). Between the row's reads
+// and the log, the DATA names the place's legacy folder where it holds
+// files — what the migration kept from
+// before Ledger with no other place, there to look in — and the record of
+// the person wherever its file stands (16.18.4, person.cjs) — none while the
+// person has kept nothing — never reading either, so neither refuses an
+// entry. Beside the legacy folder, an entry into a phase whose work reads
+// the code against the record's decisions names the shared reference on
+// decisions from before Ledger, where the work holds one
+// (decisions-from-before.cjs): that read is taken with the row's, the
+// ledger checked once for both (ledger.cjs, `withOneCheck`).
 //
 // A phase enters through its row of `ENTRIES`: its level — at a topic, or at
 // the work unit — whether the product's conversation enters through it too,
@@ -103,6 +113,7 @@ const { sessionLogs } = require('./discovery-session.cjs');
 const { arriveAt } = require('./session-label.cjs');
 const { beatQuietly, peerHold } = require('./presence.cjs');
 const { recordEntry } = require('./place-entry.cjs');
+const { owedAt, caughtUp } = require('./catch-up.cjs');
 const { agentsLeft } = require('./agent-state.cjs');
 const { runningTranscript } = require('./conversation.cjs');
 const { topicLog, ledgerView, recordCall, productCall, owedHeader, appendLine } = require('./topic-log.cjs');
@@ -116,6 +127,9 @@ const { REVIEW } = require('./review-entry.cjs');
 const { experimentRow } = require('./experiment-entry.cjs');
 const { earlierRecord, earlierReads } = require('./earlier-record.cjs');
 const { recordToRead } = require('./person.cjs');
+const { PRODUCT_DIR } = require('./layout.cjs');
+const { fromBeforeLines } = require('./decisions-from-before.cjs');
+const { withOneCheck } = require('./ledger.cjs');
 const { ontoEpic } = require('./topic-leave.cjs');
 
 /** @typedef {[string, string]} Line a DATA line, its key and its value */
@@ -645,14 +659,16 @@ function enterThrough(entries, cwd, argv) {
   const entering = { ...at, started: entry.unstarted(at), voided: entry.voids?.(at) ?? false, notes: [], seeds, record: worked };
   const readied = entering.started ? entry.readies?.(entering) ?? [] : [];
   entry.closes?.(at);
-  const reads = [...entry.reads(entering), ...readied];
+  const [reads, fromBefore] = withOneCheck(() => [[...entry.reads(entering), ...readied], fromBeforeLines(cwd, phase, unit, entering.notes)]);
+  const owed = owedAt(cwd, unit, phase, place, take);
   const held = heldAt(cwd, phase, unit, place);
   /** @type {{committed?: string|null, note?: string, warnings?: string[]}} */
   const commit = entering.started || entering.voided || departure !== null ? settle(cwd, entry, entering, held, departure) : {};
   held.arrive(worked);
   beatQuietly(cwd, unit, phase, place);
   recordEntry(cwd, unit, phase, place);
-  const lines = [...reads, ...personLines(), ...logLines(cwd, entry, entering)];
+  const logged = logLines(cwd, entry, entering);
+  const lines = [...reads, ...caughtUp(cwd, unit, phase, place, entering.started, owed), ...legacyLines(cwd, unit), ...fromBefore, ...personLines(), ...logged];
   const warnings = [...entering.notes, ...(commit.warnings ?? [])];
   return {
     response: { phase, unit, ...atTopic, entered: true, started: entering.started, ...commit, ...(warnings.length > 0 ? { warnings } : {}) },
@@ -669,6 +685,18 @@ function enterThrough(entries, cwd, argv) {
 function typeCalled(entry, at, seeds) {
   const lines = /** @type {NonNullable<Entry['typeCall']>} */ (entry.typeCall)(at, seeds);
   return { response: { phase: at.phase, unit: at.unit, entered: true, started: false }, sections: entrySections([], lines) };
+}
+
+/**
+ * The DATA's line naming the place's legacy folder, where it holds files
+ * (the header's); none where it holds none.
+ * @param {string} cwd @param {string} unit a unit, or `product`
+ * @returns {Line[]}
+ */
+function legacyLines(cwd, unit) {
+  const folder = statePath(cwd, `${unit === PRODUCT ? PRODUCT_DIR : unit}/assets/legacy`);
+  if (!fs.existsSync(folder) || fs.readdirSync(folder).length === 0) return [];
+  return [['legacy', `${folder} — files from before Ledger the migration had no other place for; look in it when the work needs them`]];
 }
 
 /**

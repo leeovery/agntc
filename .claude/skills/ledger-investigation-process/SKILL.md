@@ -19,6 +19,8 @@ A bugfix's one topic: the product does something wrong and its cause is not yet 
 
 Load **[framework.md](../ledger-shared/references/framework.md)** and follow its instructions as written.
 
+Load **[raising-a-call.md](../ledger-shared/references/raising-a-call.md)** and follow its instructions as written.
+
 ## Done When
 
 `investigation stage` has answered: the engine holds the investigation closed into its spec, its recap staged for ready to build, and its `next` hands the work into the spec.
@@ -33,7 +35,7 @@ node .claude/skills/ledger-engine/scripts/engine.cjs enter investigation {work_u
 
 A refusal names the way on: say it in a line. Where another session holds the topic, the entry asks first; carrying on from it ends the turn. Waiting mail is the conversation's first business (**Mail**).
 
-Then read what the DATA names, each in full, an `earlier` one as input never changed. Where the brief lists shared files, load **[reference-files.md](../ledger-shared/references/reference-files.md)** and follow its instructions as written. Take in each `landed` report as **Validations** says, and close each `lost` one with `agent incorporate`. Search earlier work units' entries in the bug's area with `knowledge query`.
+Then read what the DATA names, each in full, an `earlier` one as input never changed, a `catch up` transcript as far as the framework says. Take in each `landed` report as **Validations** says, and close each `lost` one with `agent incorporate`. Search earlier work units' entries in the bug's area with `knowledge query`.
 
 Then open the conversation; never stop in silence once you have read. The opening names each `kept branch` and `kept work` to the person, a piece of work with the calls its line gives. On resume, say in your own words, in a line, where the hunt stands and what comes next.
 
@@ -110,7 +112,7 @@ Once the fix is decided, log the fix direction (`investigation-log fix-direction
 
 ### Mail
 
-At natural pauses, check `topic mailbox {work_unit} {work_unit}`: a message is what was found elsewhere for this investigation to settle, such as one carried into its mailbox from before Ledger. Put the question it raises on the map, asked with its id from before where the message carries a point from before, then remove the message: `topic answered {work_unit} {work_unit} {NNN-slug} --entry {question}`.
+At natural pauses, check `topic mailbox {work_unit} {work_unit}`: a message is what was found elsewhere for this investigation to settle. Put the question it raises on the map, asked with its id from before where the message carries a point from before, then remove the message: `topic answered {work_unit} {work_unit} {NNN-slug} --entry {question}`.
 
 ### The Log
 

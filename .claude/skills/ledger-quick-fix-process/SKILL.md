@@ -18,6 +18,8 @@ Settled work of any size, needing no decision beyond a quick call, made in one s
 
 Load **[framework.md](../ledger-shared/references/framework.md)** and follow its instructions as written.
 
+Load **[raising-a-call.md](../ledger-shared/references/raising-a-call.md)** and follow its instructions as written.
+
 ## Done When
 
 The person has said yes at the close: `finish yes` has landed the quick-fix's pull request, and the engine holds the work unit completed. Where they asked for the review there, the review phase reaches that yes instead.
